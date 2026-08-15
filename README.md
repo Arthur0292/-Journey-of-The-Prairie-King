@@ -71,11 +71,12 @@ This repository contains a complete demake of that mini-game, implemented from s
 ```
 ## Game maps
 
-<img width="316" height="239" alt="image" src="https://github.com/user-attachments/assets/2b88d54f-f43b-45a1-86c3-d70a9391cbb2" />
+<img width="299" height="233" alt="image" src="https://github.com/user-attachments/assets/2b88d54f-f43b-45a1-86c3-d70a9391cbb2" />
 
-<img width="316" height="239" alt="image" src="https://github.com/user-attachments/assets/e6c77af3-ccff-42b8-b61d-69e63c94ae00" />
+<img width="299" height="233" alt="image" src="https://github.com/user-attachments/assets/677c3b1b-b709-443f-aa12-5856ee2ff7af" />
 
-<img width="316" height="239" alt="image" src="https://github.com/user-attachments/assets/e4f8d0de-cef4-416d-93ea-c8a12ae51a1b" />
+
+<img width="299" height="233" alt="image" src="https://github.com/user-attachments/assets/e4f8d0de-cef4-416d-93ea-c8a12ae51a1b" />
 
 ## Getting Started
 
