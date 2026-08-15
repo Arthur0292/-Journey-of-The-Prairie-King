@@ -13,26 +13,27 @@ A full recreation of the "Journey of the Prairie King" arcade mini-game from *St
 
 In *Stardew Valley* (ConcernedApe, 2016), players can visit the Stardrop Saloon and play arcade machines, one of which is "Journey of the Prairie King": a top-down shooter in which the player must survive waves of enemies, collect power-ups, purchase upgrades, and defeat a boss to progress through each level.
 
-This repository contains a complete demake of that mini-game, implemented from scratch in RISC-V Assembly and executed in the RARS simulator. The project reproduces the core mechanics of the original game, including movement, directional shooting, collision detection, enemy pursuit AI, a heads-up display, MIDI-based music, and win/loss conditions.
+This repository contains a complete demake of that mini-game, implemented from scratch in RISC-V Assembly and executed in the RARS simulator. The engine drives its own game loop, enemy AI, collision system, sprite double-buffering, HUD, and MIDI-based soundtrack directly through memory-mapped I/O.
 
 ## Features
 
-- Three playable maps (desert, snow, and grass), converted from PNG images into byte matrices rendered through the RARS Bitmap Display
-- Grid-based player movement (`W A S D`), with collision checks performed before each step
-- Directional shooting system (`I J K L`), including sound effects and automatic projectile removal on impact
-- Collision detection based on a binary map (0 = free, 1 = obstacle) generated from the scene's sprite data
-- Enemy pursuit AI that moves toward the player's position every frame
-- Dynamic HUD displaying remaining lives, updated whenever the player takes damage
-- Background music implemented through RARS MIDI calls, with note data extracted via HookTheory
-- Win and loss conditions: defeating the required enemies across all three levels, or losing all lives
+- Three distinct levels (desert, snow, and grass), each with its own background, sprite set, and collision map
+- Grid-based player movement (`W A S D`) with per-axis collision checks against the level's obstacle map
+- Directional shooting system (`I J K L`), with sound effects on fire and automatic despawning on wall or enemy impact
+- Enemy spawn system that activates up to four enemies at a time on a fixed timer
+- Enemy pursuit AI that steps toward the player along whichever axis (x or y) has the larger distance, blocked by the same collision map used by the player
+- Player damage and temporary invincibility frames on contact with an enemy
+- Dynamic HUD showing remaining lives via a heart icon and numeric sprite, refreshed on every hit
+- Progression system requiring a fixed number of kills per level to advance, culminating in a win screen
+- Full menu, victory, and game-over screens, each with a looping MIDI soundtrack
 
 ## Technology Stack
 
 | Technology | Purpose |
 |---|---|
 | RISC-V Assembly | Core implementation language |
-| RARS | Simulator/IDE used for execution, Bitmap Display, and MIDI |
-| Bitmap Display (RARS) | Rendering of scenes and sprites |
+| RARS | Simulator/IDE used for execution, Bitmap Display, keyboard input, and MIDI |
+| Bitmap Display (RARS) | Rendering of scenes and sprites via memory-mapped pixel buffers |
 | MIDI (RARS) | Playback of menu, victory, and game-over soundtracks |
 
 ## Repository Structure
@@ -40,22 +41,22 @@ This repository contains a complete demake of that mini-game, implemented from s
 ```
 .
 ├── funcoes/                    # Core game logic
-│   ├── apagar.s
-│   ├── apagar_tiro.s
-│   ├── apagar_vida.s
-│   ├── colisao.s
-│   ├── colisao_inimigo.s
-│   ├── colisao_tiro.s
-│   ├── desenhar_inimigos.s
-│   ├── desenhar_vida.s
-│   ├── mover_inimigo.s
-│   ├── print.s
-│   ├── print_imagem.s
-│   ├── print_tiro.s
-│   ├── spawnar_inimigos.s
-│   └── tirar_inimigos.s
+│   ├── apagar.s                 # Erase a sprite from the display
+│   ├── apagar_tiro.s            # Erase a projectile from the display
+│   ├── apagar_vida.s            # Erase HUD life sprite
+│   ├── colisao.s                # Player/enemy vs. level collision map check
+│   ├── colisao_inimigo.s        # Player vs. enemy hitbox collision and damage
+│   ├── colisao_tiro.s           # Projectile vs. enemy collision (kill logic)
+│   ├── desenhar_inimigos.s      # Redraw active enemies each frame
+│   ├── desenhar_vida.s          # Redraw HUD life sprite
+│   ├── mover_inimigo.s          # Enemy pursuit AI
+│   ├── print.s                  # Generic sprite blit to the bitmap display
+│   ├── print_imagem.s           # Full background image blit
+│   ├── print_tiro.s             # Projectile sprite blit
+│   ├── spawnar_inimigos.s       # Enemy spawn scheduler
+│   └── tirar_inimigos.s         # Deactivate/clear all enemies (level transitions)
 ├── sprites/                     # Scene, character, and HUD sprite data
-│   ├── HUD/                     # Heart/life indicator sprites
+│   ├── HUD/                     # Heart and life-count sprites
 │   ├── fase_2/                  # Stage 2 sprite set (snow)
 │   ├── fase_3/                  # Stage 3 sprite set (grass)
 │   ├── cenario1.s / cenario2.s  # Stage backgrounds
@@ -64,7 +65,7 @@ This repository contains a complete demake of that mini-game, implemented from s
 │   ├── mapa_colisao1.s / mapa_colisao2.s / mapa_colisao3.s  # Per-stage collision maps
 │   ├── menu.s / game_over.s / game_win.s
 │   └── tiro.s                   # Projectile sprite
-├── main.s                       # Program entry point
+├── main.s                       # Program entry point, game loop, and state machine
 ├── Rars16_Custom1.jar           # RARS simulator build used for this project
 └── Documentação Projeto ISC.pdf # Full project report
 ```
@@ -92,12 +93,21 @@ This repository contains a complete demake of that mini-game, implemented from s
 | `J` | Shoot left |
 | `K` | Shoot down |
 | `L` | Shoot right |
+| `N` | Skip to the next level (debug) |
 
-## Technical Highlights
+## Implementation Details
 
-- **Image-to-matrix conversion**: scenes (320x240) were converted from PNG images into byte vectors representing each pixel, allowing them to be loaded directly through the RARS Bitmap Display.
-- **Dedicated collision maps**: each level has its own binary matrix, checked before any movement (player, projectile, or enemy) to allow or block displacement.
-- **Careful memory management in Assembly**: register and memory layout were organized to keep the program stable and lightweight, one of the most significant challenges of the project.
+**Rendering and double buffering.** Sprites are written to one of two frame buffers, selected by shifting a frame index (0 or 1) into the display's base address before computing the pixel offset (`row * 320 + col`). The main loop alternates between buffers every iteration and erases each entity's previous position before redrawing it at its new one, avoiding full-screen redraws.
+
+**Collision system.** Each level owns a 320x240 binary collision map, where `1` marks an obstacle and `0` marks free space. Before the player, an enemy, or a projectile moves, the target position is checked in 4-pixel steps against the map; a hit blocks the movement outright.
+
+**Enemy AI.** Every few frames (governed by `MOVE_INTERVAL`), each active enemy compares its position to the player's and steps two pixels along whichever axis has the greater distance, again validated against the collision map. The enemy's facing sprite is derived from the direction it last moved.
+
+**Damage and invincibility.** Enemy contact reduces the player's life by one and sets a fixed invincibility window (`PLAYER_INVENCIVEL`), which is decremented every frame and blocks further damage until it expires.
+
+**Level progression.** Each level tracks its own kill counter; reaching a fixed kill threshold triggers a transition that resets enemy state, loads the next level's collision map, sprite set, and background color, and clears the spawn timer.
+
+**Audio.** Menu, victory, and game-over music are stored as flat arrays of `(pitch, duration)` pairs and played back note-by-note through the RARS MIDI syscall, looping automatically once the track ends.
 
 ## Documentation
 
